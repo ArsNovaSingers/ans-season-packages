@@ -3,7 +3,7 @@
  * Plugin Name:       Ars Nova Season Packages
  * Plugin URI:        https://github.com/ArsNovaSingers/ans-season-packages
  * Description:       Applies the Ars Nova season package discounts by counting DISTINCT concert categories in the cart, not line items. Three or more distinct concerts earn the Flex Pass (15%); five or more earn the Season Package (20%). Multiple performances of the SAME concert count once, which is the whole point. Replaces two hand-configured Discount Rules (Flycart) rules that enumerated product IDs and went stale silently whenever a performance was added.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Author:            Ars Nova (Jonathan Raabe) + Claude
  * Requires at least: 5.8
  * Requires PHP:      7.4
@@ -41,7 +41,7 @@
  * mutate. That makes the whole calculation idempotent: running it five times
  * in one request produces exactly the same number as running it once.
  *
- * See ans_sp_base_price(). Do not "optimise" it into get_price().
+ * See ans_spd_base_price(). Do not "optimise" it into get_price().
  *
  * ---------------------------------------------------------------------------
  * WHY ITEM PRICE AND NOT A NEGATIVE CART FEE
@@ -62,28 +62,43 @@
  * Do NOT add a "skip Tickera tickets" rule. Since 2026-08-20 the Nova Circle
  * membership fee IS a real Tickera ticket type (on event 7188), so a
  * ticket-ness test would now skip everything. The category is the gate.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE PREFIX IS ans_spd_ AND NOT ans_sp_
+ *
+ * Do not "tidy" this to ans_sp_. That prefix is already taken.
+ * ars-nova-ticketing-bridge has owned ans_sp_* since before this plugin
+ * existed, for "season PROJECTS" -- ans_sp_render(), ans_sp_place(),
+ * ans_sp_date_range(), ans_sp_styles() and ans_sp_event_term() all live in its
+ * main file, and ans_pkg_concerts() calls ans_sp_place() behind a
+ * function_exists() guard.
+ *
+ * Neither plugin guards its own declarations, and ans-season-packages loads
+ * first alphabetically, so a collision would fatal the BRIDGE on every
+ * request -- a white screen on a live storefront, not a warning. The d is for
+ * "discount" and it exists solely to keep these two namespaces apart.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ANS_SP_VERSION', '1.0.0' );
+define( 'ANS_SPD_VERSION', '1.0.1' );
 
 /**
  * Parent product_cat term whose CHILDREN are the discountable concerts.
  * `Season Concerts` = 86 on this site. Filterable so it is never a hardcoded
  * assumption in the logic itself.
  */
-define( 'ANS_SP_PARENT_TERM', 86 );
+define( 'ANS_SPD_PARENT_TERM', 86 );
 
 /**
  * The parent term ID, filterable.
  *
  * @return int
  */
-function ans_sp_parent_term_id() {
-	return (int) apply_filters( 'ans_sp_parent_term_id', ANS_SP_PARENT_TERM );
+function ans_spd_parent_term_id() {
+	return (int) apply_filters( 'ans_spd_parent_term_id', ANS_SPD_PARENT_TERM );
 }
 
 /**
@@ -95,7 +110,7 @@ function ans_sp_parent_term_id() {
  *
  * @return array<int,array{key:string,min:int,pct:float,label:string}>
  */
-function ans_sp_tiers() {
+function ans_spd_tiers() {
 	$tiers = array(
 		array(
 			'key'   => 'season',
@@ -111,7 +126,7 @@ function ans_sp_tiers() {
 		),
 	);
 
-	$tiers = (array) apply_filters( 'ans_sp_tiers', $tiers );
+	$tiers = (array) apply_filters( 'ans_spd_tiers', $tiers );
 
 	usort(
 		$tiers,
@@ -131,14 +146,14 @@ function ans_sp_tiers() {
  *
  * @return int[]
  */
-function ans_sp_concert_terms() {
+function ans_spd_concert_terms() {
 	static $terms = null;
 
 	if ( null !== $terms ) {
 		return $terms;
 	}
 
-	$children = get_term_children( ans_sp_parent_term_id(), 'product_cat' );
+	$children = get_term_children( ans_spd_parent_term_id(), 'product_cat' );
 	$terms    = is_wp_error( $children ) ? array() : array_map( 'intval', (array) $children );
 
 	return $terms;
@@ -155,7 +170,7 @@ function ans_sp_concert_terms() {
  * @param int $product_id Parent product ID (not the variation).
  * @return int
  */
-function ans_sp_item_concert_term( $product_id ) {
+function ans_spd_item_concert_term( $product_id ) {
 	static $cache = array();
 
 	$product_id = (int) $product_id;
@@ -164,7 +179,7 @@ function ans_sp_item_concert_term( $product_id ) {
 		return $cache[ $product_id ];
 	}
 
-	$concerts = ans_sp_concert_terms();
+	$concerts = ans_spd_concert_terms();
 
 	if ( empty( $concerts ) || $product_id <= 0 ) {
 		$cache[ $product_id ] = 0;
@@ -206,7 +221,7 @@ function ans_sp_item_concert_term( $product_id ) {
  * @param WC_Product $product Cart item product object.
  * @return float 0.0 when there is no usable base price.
  */
-function ans_sp_base_price( $product ) {
+function ans_spd_base_price( $product ) {
 	$regular = (float) $product->get_regular_price( 'edit' );
 
 	if ( $regular <= 0 ) {
@@ -249,7 +264,7 @@ function ans_sp_base_price( $product ) {
  * @param WC_Cart $cart The cart being calculated.
  * @return void
  */
-function ans_sp_apply_discount( $cart ) {
+function ans_spd_apply_discount( $cart ) {
 
 	// Never touch an order being created by hand in wp-admin.
 	if ( is_admin() && ! wp_doing_ajax() && ! ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
@@ -266,7 +281,7 @@ function ans_sp_apply_discount( $cart ) {
 		return;
 	}
 
-	if ( empty( ans_sp_concert_terms() ) ) {
+	if ( empty( ans_spd_concert_terms() ) ) {
 		// No concert categories resolved. Do nothing rather than guess.
 		return;
 	}
@@ -280,7 +295,7 @@ function ans_sp_apply_discount( $cart ) {
 		}
 
 		$product_id = ! empty( $item['product_id'] ) ? (int) $item['product_id'] : (int) $item['data']->get_id();
-		$term       = ans_sp_item_concert_term( $product_id );
+		$term       = ans_spd_item_concert_term( $product_id );
 
 		if ( $term > 0 ) {
 			$eligible[ $key ] = $term;
@@ -292,7 +307,7 @@ function ans_sp_apply_discount( $cart ) {
 
 	$tier = null;
 
-	foreach ( ans_sp_tiers() as $candidate ) {
+	foreach ( ans_spd_tiers() as $candidate ) {
 		if ( $distinct >= (int) $candidate['min'] ) {
 			$tier = $candidate;
 			break;
@@ -303,21 +318,21 @@ function ans_sp_apply_discount( $cart ) {
 
 	foreach ( $contents as $key => $item ) {
 
-		$stamped = isset( $cart->cart_contents[ $key ]['ans_sp'] );
+		$stamped = isset( $cart->cart_contents[ $key ]['ans_spd'] );
 
 		if ( null === $tier || ! isset( $eligible[ $key ] ) ) {
 			if ( $stamped ) {
-				unset( $cart->cart_contents[ $key ]['ans_sp'] );
+				unset( $cart->cart_contents[ $key ]['ans_spd'] );
 			}
 			continue;
 		}
 
 		$product = $item['data'];
-		$base    = ans_sp_base_price( $product );
+		$base    = ans_spd_base_price( $product );
 
 		if ( $base <= 0 ) {
 			if ( $stamped ) {
-				unset( $cart->cart_contents[ $key ]['ans_sp'] );
+				unset( $cart->cart_contents[ $key ]['ans_spd'] );
 			}
 			continue;
 		}
@@ -327,18 +342,18 @@ function ans_sp_apply_discount( $cart ) {
 
 		$product->set_price( $unit );
 
-		$cart->cart_contents[ $key ]['ans_sp'] = array(
+		$cart->cart_contents[ $key ]['ans_spd'] = array(
 			'tier'     => $tier['key'],
 			'label'    => $tier['label'],
 			'percent'  => $pct * 100,
 			'concerts' => $distinct,
 			'base'     => $base,
 			'unit'     => $unit,
-			'plugin'   => ANS_SP_VERSION,
+			'plugin'   => ANS_SPD_VERSION,
 		);
 	}
 }
-add_action( 'woocommerce_before_calculate_totals', 'ans_sp_apply_discount', 20, 1 );
+add_action( 'woocommerce_before_calculate_totals', 'ans_spd_apply_discount', 20, 1 );
 
 /**
  * A customer-visible reason for the lower price.
@@ -353,12 +368,12 @@ add_action( 'woocommerce_before_calculate_totals', 'ans_sp_apply_discount', 20, 
  * @param array $cart_item Cart item.
  * @return array
  */
-function ans_sp_item_data( $data, $cart_item ) {
-	if ( empty( $cart_item['ans_sp'] ) ) {
+function ans_spd_item_data( $data, $cart_item ) {
+	if ( empty( $cart_item['ans_spd'] ) ) {
 		return $data;
 	}
 
-	$d = $cart_item['ans_sp'];
+	$d = $cart_item['ans_spd'];
 
 	$data[] = array(
 		'key'   => __( 'Season discount', 'ans-season-packages' ),
@@ -373,7 +388,7 @@ function ans_sp_item_data( $data, $cart_item ) {
 
 	return $data;
 }
-add_filter( 'woocommerce_get_item_data', 'ans_sp_item_data', 10, 2 );
+add_filter( 'woocommerce_get_item_data', 'ans_spd_item_data', 10, 2 );
 
 /**
  * Show the regular price struck through in the classic cart.
@@ -386,12 +401,12 @@ add_filter( 'woocommerce_get_item_data', 'ans_sp_item_data', 10, 2 );
  * @param string $cart_key  Cart item key.
  * @return string
  */
-function ans_sp_cart_item_price( $html, $cart_item, $cart_key ) {
-	if ( empty( $cart_item['ans_sp'] ) || empty( $cart_item['data'] ) ) {
+function ans_spd_cart_item_price( $html, $cart_item, $cart_key ) {
+	if ( empty( $cart_item['ans_spd'] ) || empty( $cart_item['data'] ) ) {
 		return $html;
 	}
 
-	$d       = $cart_item['ans_sp'];
+	$d       = $cart_item['ans_spd'];
 	$product = $cart_item['data'];
 
 	$was = wc_get_price_to_display( $product, array( 'price' => $d['base'] ) );
@@ -399,7 +414,7 @@ function ans_sp_cart_item_price( $html, $cart_item, $cart_key ) {
 
 	return '<del aria-hidden="true">' . wc_price( $was ) . '</del> <ins>' . wc_price( $now ) . '</ins>';
 }
-add_filter( 'woocommerce_cart_item_price', 'ans_sp_cart_item_price', 10, 3 );
+add_filter( 'woocommerce_cart_item_price', 'ans_spd_cart_item_price', 10, 3 );
 
 /**
  * Stamp the applied tier onto the order line item.
@@ -416,12 +431,12 @@ add_filter( 'woocommerce_cart_item_price', 'ans_sp_cart_item_price', 10, 3 );
  * @param WC_Order              $order         Order.
  * @return void
  */
-function ans_sp_order_line_item( $item, $cart_item_key, $values, $order ) {
-	if ( empty( $values['ans_sp'] ) ) {
+function ans_spd_order_line_item( $item, $cart_item_key, $values, $order ) {
+	if ( empty( $values['ans_spd'] ) ) {
 		return;
 	}
 
-	$d = $values['ans_sp'];
+	$d = $values['ans_spd'];
 
 	$item->add_meta_data( '_ans_season_package', $d, true );
 
@@ -438,18 +453,18 @@ function ans_sp_order_line_item( $item, $cart_item_key, $values, $order ) {
 		true
 	);
 }
-add_action( 'woocommerce_checkout_create_order_line_item', 'ans_sp_order_line_item', 10, 4 );
+add_action( 'woocommerce_checkout_create_order_line_item', 'ans_spd_order_line_item', 10, 4 );
 
 /**
  * Admin notice if WooCommerce is not active. This plugin does nothing without
  * it, and a silently inert discount plugin is exactly the failure mode the
  * whole build exists to remove.
  */
-function ans_sp_requires_woocommerce_notice() {
+function ans_spd_requires_woocommerce_notice() {
 	if ( class_exists( 'WooCommerce' ) ) {
 		return;
 	}
 
 	echo '<div class="notice notice-error"><p><strong>Ars Nova Season Packages</strong> requires WooCommerce to be active. No season package discount is being applied.</p></div>';
 }
-add_action( 'admin_notices', 'ans_sp_requires_woocommerce_notice' );
+add_action( 'admin_notices', 'ans_spd_requires_woocommerce_notice' );

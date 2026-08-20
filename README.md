@@ -32,7 +32,7 @@ three concerts and wrongly earned 15% off - $102 where it should be $120.
 - **`woocommerce_before_calculate_totals` fires repeatedly in one request.** Every price is
   computed from the product's *stored* price meta (`get_regular_price()` / `get_sale_price()` in
   `edit` context), never from `get_price()`, which is the value this plugin sets. That makes the
-  calculation idempotent. Do not "optimise" `ans_sp_base_price()` into `get_price()`.
+  calculation idempotent. Do not "optimise" `ans_spd_base_price()` into `get_price()`.
 - **Item price, not a negative cart fee.** A fee is taxed separately from the items it discounts;
   adjusting the item price keeps tax following the item.
 - **The category is the gate, not ticket-ness.** Since 2026-08-20 the Nova Circle membership fee
@@ -45,8 +45,14 @@ three concerts and wrongly earned 15% off - $102 where it should be $120.
 
 | Filter | Default | Purpose |
 |---|---|---|
-| `ans_sp_parent_term_id` | `86` | Parent `product_cat` term whose children are the concerts |
-| `ans_sp_tiers` | 5 -> 20%, 3 -> 15% | The tier table; re-sorted descending by `min` after filtering |
+| `ans_spd_parent_term_id` | `86` | Parent `product_cat` term whose children are the concerts |
+| `ans_spd_tiers` | 5 -> 20%, 3 -> 15% | The tier table; re-sorted descending by `min` after filtering |
+
+The prefix is `ans_spd_`, not `ans_sp_`, and that is deliberate. `ars-nova-ticketing-bridge`
+already owns `ans_sp_*` for "season **projects**" - `ans_sp_render()`, `ans_sp_place()`,
+`ans_sp_date_range()`, `ans_sp_styles()`, `ans_sp_event_term()`. Neither plugin guards its
+declarations with `function_exists()`, and this plugin loads first alphabetically, so a collision
+would fatal *the bridge* on every request. Do not "tidy" the prefix.
 
 ## Order records
 
